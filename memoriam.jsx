@@ -1,0 +1,392 @@
+import { useState, useEffect, useRef } from "react";
+
+const USERS = {
+  J: { name: "Jessica", color: "#6750A4", light: "#EADDFF", avatar: "J" },
+  E: { name: "Elias", color: "#B5006D", light: "#FFD8EE", avatar: "E" },
+};
+
+const SK_LIBRARY = "memoria_library_v2";
+const SK_WALLS = "memoria_walls_v2";
+
+function genId() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
+function randomTilt() { return (Math.random() - 0.5) * 14; }
+
+// ─── Ripple ──────────────────────────────────────────────────────────────────
+function Ripple({ x, y, onDone }) {
+  useEffect(() => { const t = setTimeout(onDone, 600); return () => clearTimeout(t); }, [onDone]);
+  return <span style={{ position:"absolute", left:x-40, top:y-40, width:80, height:80, borderRadius:"50%", background:"rgba(255,255,255,0.35)", pointerEvents:"none", animation:"ripple 0.6s ease-out forwards" }} />;
+}
+
+// ─── Fab ─────────────────────────────────────────────────────────────────────
+function Fab({ onClick, children, color="#6750A4", style={} }) {
+  const [ripples, setRipples] = useState([]);
+  const fire = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const id = genId();
+    setRipples(p => [...p, { id, x: e.clientX-r.left, y: e.clientY-r.top }]);
+    onClick && onClick(e);
+  };
+  return (
+    <button onClick={fire} style={{ position:"relative", overflow:"hidden", background:color, color:"#fff", border:"none", borderRadius:14, padding:"12px 20px", fontFamily:"'DM Sans',sans-serif", fontWeight:600, fontSize:14, cursor:"pointer", display:"flex", alignItems:"center", gap:8, boxShadow:"0 3px 12px rgba(0,0,0,0.18)", transition:"transform 0.15s", ...style }}
+      onMouseEnter={e => e.currentTarget.style.transform="translateY(-2px)"}
+      onMouseLeave={e => e.currentTarget.style.transform="translateY(0)"}>
+      {ripples.map(r => <Ripple key={r.id} x={r.x} y={r.y} onDone={() => setRipples(p => p.filter(x => x.id !== r.id))} />)}
+      {children}
+    </button>
+  );
+}
+
+// ─── Chip ────────────────────────────────────────────────────────────────────
+function Chip({ active, onClick, children, color }) {
+  return <button onClick={onClick} style={{ background: active ? color : "transparent", color: active ? "#fff" : "#49454F", border:`1.5px solid ${active ? color : "#CAC4D0"}`, borderRadius:8, padding:"6px 14px", fontFamily:"'DM Sans',sans-serif", fontWeight:500, fontSize:13, cursor:"pointer", transition:"all 0.2s" }}>{children}</button>;
+}
+
+// ─── Photo Card ───────────────────────────────────────────────────────────────
+function PhotoCard({ photo, walls, onAddToWall, onRemove }) {
+  const [open, setOpen] = useState(false);
+  const user = USERS[photo.user];
+  const wallsContaining = walls.filter(w => w.items.some(i => i.photo.id === photo.id));
+
+  return (
+    <div style={{ borderRadius:20, overflow:"hidden", background:"#F7F2FA", boxShadow:"0 2px 8px rgba(0,0,0,0.08)", transition:"transform 0.2s, box-shadow 0.2s", position:"relative" }}
+      onMouseEnter={e => { e.currentTarget.style.transform="translateY(-4px) scale(1.01)"; e.currentTarget.style.boxShadow="0 8px 24px rgba(0,0,0,0.14)"; }}
+      onMouseLeave={e => { e.currentTarget.style.transform=""; e.currentTarget.style.boxShadow="0 2px 8px rgba(0,0,0,0.08)"; }}>
+      <img src={photo.url} alt={photo.name} style={{ width:"100%", aspectRatio:"4/3", objectFit:"cover", display:"block" }} />
+      <div style={{ padding:"10px 12px 12px" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+          <div style={{ width:22, height:22, borderRadius:"50%", background:user.color, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, fontFamily:"'DM Sans',sans-serif", flexShrink:0 }}>{user.avatar}</div>
+          <span style={{ fontSize:12, color:"#49454F", fontFamily:"'DM Sans',sans-serif", flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{photo.name}</span>
+        </div>
+        {wallsContaining.length > 0 && (
+          <div style={{ display:"flex", flexWrap:"wrap", gap:4, marginBottom:8 }}>
+            {wallsContaining.map(w => (
+              <span key={w.id} style={{ background:"#EDE7F6", color:"#6750A4", borderRadius:6, padding:"2px 8px", fontSize:11, fontWeight:600, fontFamily:"'DM Sans',sans-serif" }}>📌 {w.name}</span>
+            ))}
+          </div>
+        )}
+        <div style={{ position:"relative", display:"flex", gap:6 }}>
+          <button onClick={() => setOpen(o => !o)} style={{ flex:1, background:"#6750A4", color:"#fff", border:"none", borderRadius:10, padding:"8px 0", fontFamily:"'DM Sans',sans-serif", fontWeight:600, fontSize:12, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+            📌 Add to Wall ▾
+          </button>
+          <button onClick={() => onRemove(photo.id)} style={{ background:"#FDECEA", border:"none", borderRadius:10, padding:"8px 10px", cursor:"pointer", fontSize:14, color:"#B3261E" }} title="Remove">🗑</button>
+          {open && (
+            <div style={{ position:"absolute", bottom:"calc(100% + 6px)", left:0, background:"#fff", borderRadius:16, boxShadow:"0 8px 32px rgba(0,0,0,0.16)", padding:8, zIndex:50, minWidth:180, animation:"fadeUp 0.15s ease" }}>
+              {walls.map(w => {
+                const onIt = w.items.some(i => i.photo.id === photo.id);
+                return (
+                  <button key={w.id} onClick={() => { if (!onIt) onAddToWall(photo, w.id); setOpen(false); }}
+                    style={{ display:"flex", alignItems:"center", gap:10, width:"100%", border:"none", background: onIt ? "#F3EDF7" : "transparent", borderRadius:10, padding:"8px 12px", cursor: onIt ? "default" : "pointer", fontFamily:"'DM Sans',sans-serif", fontSize:13, color: onIt ? "#9A8CB0" : "#1C1B1F", fontWeight:500, textAlign:"left" }}>
+                    <span style={{ fontSize:16 }}>{onIt ? "✓" : "🖼️"}</span> {w.name} {onIt && <span style={{ fontSize:11, color:"#9A8CB0" }}>(pinned)</span>}
+                  </button>
+                );
+              })}
+              {walls.length === 0 && <div style={{ padding:"8px 12px", fontSize:13, color:"#79747E", fontFamily:"'DM Sans',sans-serif" }}>No walls yet — create one first!</div>}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Wall Photo Sticker ───────────────────────────────────────────────────────
+function WallPhoto({ item, onRemove }) {
+  const [pos, setPos] = useState({ x: item.x, y: item.y });
+  const [dragging, setDragging] = useState(false);
+  const dragStart = useRef(null);
+  const user = USERS[item.photo.user];
+
+  const onMouseDown = (e) => {
+    e.preventDefault();
+    dragStart.current = { mx: e.clientX, my: e.clientY, ox: pos.x, oy: pos.y };
+    setDragging(true);
+  };
+  useEffect(() => {
+    if (!dragging) return;
+    const onMove = (e) => { const dx = e.clientX-dragStart.current.mx, dy = e.clientY-dragStart.current.my; setPos({ x: dragStart.current.ox+dx, y: dragStart.current.oy+dy }); };
+    const onUp = () => setDragging(false);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, [dragging]);
+
+  return (
+    <div onMouseDown={onMouseDown} style={{ position:"absolute", left:pos.x, top:pos.y, transform:`rotate(${item.tilt}deg)`, cursor: dragging?"grabbing":"grab", userSelect:"none", zIndex: dragging?999:item.z, filter: dragging?"drop-shadow(0 16px 32px rgba(0,0,0,0.28))":"drop-shadow(0 4px 12px rgba(0,0,0,0.18))", transition: dragging?"none":"filter 0.2s" }}>
+      <div style={{ background:"#fff", borderRadius:4, padding:"10px 10px 32px", width:160, boxShadow:"inset 0 0 0 1px rgba(0,0,0,0.06)" }}>
+        <img src={item.photo.url} alt={item.photo.name} style={{ width:"100%", aspectRatio:"4/3", objectFit:"cover", display:"block", borderRadius:2 }} draggable={false} />
+        <div style={{ marginTop:6, display:"flex", alignItems:"center", gap:5 }}>
+          <div style={{ width:16, height:16, borderRadius:"50%", background:user.color, color:"#fff", fontSize:9, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans',sans-serif", flexShrink:0 }}>{user.avatar}</div>
+          <span style={{ fontSize:11, color:"#49454F", fontFamily:"'DM Sans',sans-serif", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.photo.name}</span>
+        </div>
+      </div>
+      <button onMouseDown={e => e.stopPropagation()} onClick={() => onRemove(item.id)} style={{ position:"absolute", top:-8, right:-8, width:22, height:22, borderRadius:"50%", background:"#B3261E", color:"#fff", border:"none", cursor:"pointer", fontSize:13, display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 2px 6px rgba(0,0,0,0.2)", fontWeight:700 }}>×</button>
+    </div>
+  );
+}
+
+// ─── Upload Modal ─────────────────────────────────────────────────────────────
+function UploadModal({ user, onClose, onUpload }) {
+  const [preview, setPreview] = useState(null);
+  const [name, setName] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const fileRef = useRef();
+  const u = USERS[user];
+
+  const handleFile = (file) => {
+    if (!file?.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = e => { setPreview(e.target.result); setName(file.name.replace(/\.[^.]+$/, "")); };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.4)", backdropFilter:"blur(8px)", zIndex:2000, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background:"#FEF7FF", borderRadius:28, padding:32, width:"100%", maxWidth:420, boxShadow:"0 24px 48px rgba(0,0,0,0.22)", animation:"modalIn 0.25s cubic-bezier(0.34,1.56,0.64,1)" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:24 }}>
+          <div style={{ width:40, height:40, borderRadius:"50%", background:u.color, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:18, fontFamily:"'DM Sans',sans-serif" }}>{u.avatar}</div>
+          <div>
+            <div style={{ fontFamily:"'DM Serif Display',serif", fontSize:20, color:"#1C1B1F" }}>Add a Photo</div>
+            <div style={{ fontSize:12, color:"#49454F", fontFamily:"'DM Sans',sans-serif" }}>as {u.name}</div>
+          </div>
+        </div>
+        <div onClick={() => fileRef.current.click()} onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={e => { e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files[0]); }}
+          style={{ border:`2px dashed ${dragOver ? u.color : "#CAC4D0"}`, borderRadius:20, padding:24, textAlign:"center", cursor:"pointer", background: dragOver ? u.light : "#F7F2FA", transition:"all 0.2s", marginBottom:16, minHeight:160, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center" }}>
+          {preview ? <img src={preview} alt="preview" style={{ maxHeight:160, maxWidth:"100%", borderRadius:12, objectFit:"contain" }} />
+            : <><span style={{ fontSize:36, marginBottom:8 }}>🖼️</span><span style={{ fontFamily:"'DM Sans',sans-serif", color:"#49454F", fontSize:14 }}>Drop image here or click to browse</span></>}
+        </div>
+        <input ref={fileRef} type="file" accept="image/*" style={{ display:"none" }} onChange={e => handleFile(e.target.files[0])} />
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="Photo name…" style={{ width:"100%", border:"1.5px solid #CAC4D0", borderRadius:12, padding:"12px 16px", fontFamily:"'DM Sans',sans-serif", fontSize:14, background:"#F7F2FA", color:"#1C1B1F", outline:"none", boxSizing:"border-box", marginBottom:16 }} />
+        <div style={{ display:"flex", gap:10 }}>
+          <button onClick={onClose} style={{ flex:1, border:"1.5px solid #CAC4D0", borderRadius:12, padding:12, background:"transparent", fontFamily:"'DM Sans',sans-serif", cursor:"pointer", color:"#49454F", fontWeight:500 }}>Cancel</button>
+          <Fab onClick={() => { if (preview) { onUpload({ id:genId(), url:preview, name:name||"Untitled", user, createdAt:Date.now() }); onClose(); } }} color={u.color} style={{ flex:2, justifyContent:"center", borderRadius:12, padding:"12px 0" }}>Upload Photo</Fab>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Create / Rename Wall Modal ───────────────────────────────────────────────
+function WallNameModal({ initial="", title, onConfirm, onClose }) {
+  const [val, setVal] = useState(initial);
+  const inputRef = useRef();
+  useEffect(() => { inputRef.current?.focus(); }, []);
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.35)", backdropFilter:"blur(8px)", zIndex:3000, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background:"#FEF7FF", borderRadius:24, padding:28, width:"100%", maxWidth:360, boxShadow:"0 24px 48px rgba(0,0,0,0.2)", animation:"modalIn 0.22s cubic-bezier(0.34,1.56,0.64,1)" }}>
+        <div style={{ fontFamily:"'DM Serif Display',serif", fontSize:20, color:"#1C1B1F", marginBottom:16 }}>{title}</div>
+        <input ref={inputRef} value={val} onChange={e => setVal(e.target.value)} onKeyDown={e => e.key === "Enter" && val.trim() && onConfirm(val.trim())} placeholder="Wall name…" style={{ width:"100%", border:"1.5px solid #CAC4D0", borderRadius:12, padding:"12px 16px", fontFamily:"'DM Sans',sans-serif", fontSize:15, background:"#F7F2FA", color:"#1C1B1F", outline:"none", boxSizing:"border-box", marginBottom:16 }} />
+        <div style={{ display:"flex", gap:10 }}>
+          <button onClick={onClose} style={{ flex:1, border:"1.5px solid #CAC4D0", borderRadius:12, padding:12, background:"transparent", fontFamily:"'DM Sans',sans-serif", cursor:"pointer", color:"#49454F", fontWeight:500 }}>Cancel</button>
+          <Fab onClick={() => val.trim() && onConfirm(val.trim())} color="#6750A4" style={{ flex:2, justifyContent:"center", borderRadius:12, padding:"12px 0" }}>Confirm</Fab>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Walls List ───────────────────────────────────────────────────────────────
+function WallsList({ walls, activeWallId, onSelect, onCreate, onRename, onDelete }) {
+  return (
+    <div style={{ display:"flex", gap:8, padding:"12px 24px", overflowX:"auto", borderBottom:"1px solid #E8DEF8", background:"rgba(254,247,255,0.95)", alignItems:"center" }}>
+      {walls.map(w => (
+        <div key={w.id} style={{ display:"flex", alignItems:"center", gap:0, flexShrink:0 }}>
+          <button onClick={() => onSelect(w.id)} style={{ background: activeWallId===w.id ? "#EDE7F6" : "transparent", border:`1.5px solid ${activeWallId===w.id ? "#6750A4" : "#CAC4D0"}`, borderRadius:"10px 0 0 10px", borderRight:"none", padding:"7px 14px", fontFamily:"'DM Sans',sans-serif", fontWeight: activeWallId===w.id ? 700 : 500, fontSize:13, color: activeWallId===w.id ? "#6750A4" : "#49454F", cursor:"pointer", display:"flex", alignItems:"center", gap:6, transition:"all 0.15s" }}>
+            🖼️ {w.name}
+            <span style={{ background: activeWallId===w.id ? "#6750A4" : "#E8DEF8", color: activeWallId===w.id ? "#fff" : "#79747E", borderRadius:99, padding:"1px 7px", fontSize:11, fontWeight:700 }}>{w.items.length}</span>
+          </button>
+          <button onClick={() => onRename(w)} title="Rename" style={{ background: activeWallId===w.id ? "#EDE7F6" : "transparent", border:`1.5px solid ${activeWallId===w.id ? "#6750A4" : "#CAC4D0"}`, borderLeft:"1px solid #E8DEF8", borderRight:"none", padding:"7px 8px", cursor:"pointer", fontSize:13, color:"#79747E", transition:"all 0.15s" }}>✏️</button>
+          <button onClick={() => onDelete(w.id)} title="Delete wall" style={{ background: activeWallId===w.id ? "#EDE7F6" : "transparent", border:`1.5px solid ${activeWallId===w.id ? "#6750A4" : "#CAC4D0"}`, borderLeft:"1px solid #E8DEF8", borderRadius:"0 10px 10px 0", padding:"7px 8px", cursor:"pointer", fontSize:13, color:"#B3261E", transition:"all 0.15s" }}>🗑</button>
+        </div>
+      ))}
+      <button onClick={onCreate} style={{ flexShrink:0, background:"transparent", border:"1.5px dashed #CAC4D0", borderRadius:10, padding:"7px 14px", fontFamily:"'DM Sans',sans-serif", fontSize:13, color:"#6750A4", fontWeight:600, cursor:"pointer", display:"flex", alignItems:"center", gap:6, transition:"all 0.15s" }}
+        onMouseEnter={e => e.currentTarget.style.borderColor="#6750A4"}
+        onMouseLeave={e => e.currentTarget.style.borderColor="#CAC4D0"}>
+        + New Wall
+      </button>
+    </div>
+  );
+}
+
+// ─── Main App ─────────────────────────────────────────────────────────────────
+export default function App() {
+  const [tab, setTab] = useState("library");
+  const [activeUser, setActiveUser] = useState("J");
+  const [library, setLibrary] = useState(() => { try { return JSON.parse(localStorage.getItem(SK_LIBRARY)) || []; } catch { return []; } });
+  const [walls, setWalls] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(SK_WALLS));
+      return saved && saved.length > 0 ? saved : [{ id: genId(), name: "Our Memories", items: [] }];
+    } catch { return [{ id: genId(), name: "Our Memories", items: [] }]; }
+  });
+  const [activeWallId, setActiveWallId] = useState(() => walls[0]?.id);
+  const [filter, setFilter] = useState("all");
+  const [uploadModal, setUploadModal] = useState(false);
+  const [wallNameModal, setWallNameModal] = useState(null); // { mode: "create"|"rename", wall?: wall }
+  const wallRef = useRef(null);
+
+  useEffect(() => { localStorage.setItem(SK_LIBRARY, JSON.stringify(library)); }, [library]);
+  useEffect(() => { localStorage.setItem(SK_WALLS, JSON.stringify(walls)); }, [walls]);
+
+  const activeWall = walls.find(w => w.id === activeWallId) || walls[0];
+
+  const handleUpload = (photo) => setLibrary(p => [photo, ...p]);
+  const handleRemoveFromLibrary = (id) => {
+    setLibrary(p => p.filter(x => x.id !== id));
+    setWalls(ws => ws.map(w => ({ ...w, items: w.items.filter(i => i.photo.id !== id) })));
+  };
+
+  const handleAddToWall = (photo, wallId) => {
+    const wid = wallId || activeWallId;
+    setWalls(ws => ws.map(w => w.id !== wid ? w : { ...w, items: [...w.items, { id:genId(), photo, tilt:randomTilt(), x: 40 + Math.random()*400, y: 40 + Math.random()*300, z: w.items.length+1 }] }));
+    setActiveWallId(wid);
+    setTab("wall");
+  };
+
+  const handleRemoveFromWall = (itemId) => {
+    setWalls(ws => ws.map(w => w.id !== activeWallId ? w : { ...w, items: w.items.filter(i => i.id !== itemId) }));
+  };
+
+  const handleCreateWall = (name) => {
+    const id = genId();
+    setWalls(ws => [...ws, { id, name, items: [] }]);
+    setActiveWallId(id);
+    setTab("wall");
+    setWallNameModal(null);
+  };
+
+  const handleRenameWall = (name) => {
+    setWalls(ws => ws.map(w => w.id === wallNameModal.wall.id ? { ...w, name } : w));
+    setWallNameModal(null);
+  };
+
+  const handleDeleteWall = (id) => {
+    const remaining = walls.filter(w => w.id !== id);
+    if (remaining.length === 0) {
+      const newWall = { id: genId(), name: "New Wall", items: [] };
+      setWalls([newWall]);
+      setActiveWallId(newWall.id);
+    } else {
+      setWalls(remaining);
+      if (activeWallId === id) setActiveWallId(remaining[0].id);
+    }
+  };
+
+  const filteredLibrary = library.filter(p => filter === "all" || p.user === filter);
+  const u = USERS[activeUser];
+
+  return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&display=swap');
+        * { box-sizing:border-box; margin:0; padding:0; }
+        body { background:#FEF7FF; }
+        @keyframes ripple { to { transform:scale(6); opacity:0; } }
+        @keyframes modalIn { from { transform:scale(0.88) translateY(20px); opacity:0; } to { transform:none; opacity:1; } }
+        @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:none; } }
+        ::-webkit-scrollbar { width:6px; height:6px; }
+        ::-webkit-scrollbar-thumb { background:#CAC4D0; border-radius:99px; }
+        ::-webkit-scrollbar-track { background:transparent; }
+      `}</style>
+
+      <div style={{ minHeight:"100vh", background:"#FEF7FF", fontFamily:"'DM Sans',sans-serif" }}>
+        {/* Header */}
+        <header style={{ background:"rgba(254,247,255,0.88)", backdropFilter:"blur(16px)", borderBottom:"1px solid #E8DEF8", padding:"0 24px", position:"sticky", top:0, zIndex:100, display:"flex", alignItems:"center", justifyContent:"space-between", height:64 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <span style={{ fontSize:26 }}>🫧</span>
+            <span style={{ fontFamily:"'DM Serif Display',serif", fontSize:22, color:"#1C1B1F" }}>Memoria</span>
+          </div>
+          <div style={{ display:"flex", gap:8 }}>
+            {Object.entries(USERS).map(([key, val]) => (
+              <button key={key} onClick={() => setActiveUser(key)} style={{ display:"flex", alignItems:"center", gap:8, background: activeUser===key ? val.light : "transparent", border:`1.5px solid ${activeUser===key ? val.color : "#CAC4D0"}`, borderRadius:12, padding:"6px 14px 6px 8px", cursor:"pointer", transition:"all 0.2s" }}>
+                <div style={{ width:28, height:28, borderRadius:"50%", background:val.color, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700, fontSize:13 }}>{val.avatar}</div>
+                <span style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:600, fontSize:13, color:val.color }}>{val.name}</span>
+              </button>
+            ))}
+          </div>
+        </header>
+
+        {/* Tab bar */}
+        <div style={{ display:"flex", gap:4, padding:"16px 24px 0", borderBottom:"1px solid #E8DEF8", background:"rgba(254,247,255,0.92)", position:"sticky", top:64, zIndex:99 }}>
+          {[{ id:"library", label:"📚 Library", count:library.length }, { id:"wall", label:"🖼️ Walls", count:walls.reduce((a,w)=>a+w.items.length,0) }].map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{ background:"none", border:"none", borderBottom:`3px solid ${tab===t.id ? u.color : "transparent"}`, padding:"10px 20px", cursor:"pointer", fontFamily:"'DM Sans',sans-serif", fontWeight: tab===t.id ? 700 : 500, fontSize:14, color: tab===t.id ? u.color : "#49454F", transition:"all 0.2s", display:"flex", gap:8, alignItems:"center" }}>
+              {t.label}
+              <span style={{ background: tab===t.id ? u.color : "#E8DEF8", color: tab===t.id ? "#fff" : "#49454F", borderRadius:99, padding:"1px 8px", fontSize:11, fontWeight:700 }}>{t.count}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Walls strip (when on wall tab) */}
+        {tab === "wall" && (
+          <WallsList walls={walls} activeWallId={activeWallId} onSelect={setActiveWallId}
+            onCreate={() => setWallNameModal({ mode:"create" })}
+            onRename={(wall) => setWallNameModal({ mode:"rename", wall })}
+            onDelete={handleDeleteWall} />
+        )}
+
+        {/* ── Library ── */}
+        {tab === "library" && (
+          <div style={{ padding:24 }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20, flexWrap:"wrap", gap:12 }}>
+              <div>
+                <h1 style={{ fontFamily:"'DM Serif Display',serif", fontSize:28, color:"#1C1B1F" }}>Photo Library</h1>
+                <p style={{ color:"#49454F", fontSize:13, marginTop:2 }}>All shared memories in one place</p>
+              </div>
+              <Fab onClick={() => setUploadModal(true)} color={u.color}><span style={{ fontSize:18 }}>+</span> Upload Photo</Fab>
+            </div>
+            <div style={{ display:"flex", gap:8, marginBottom:20, flexWrap:"wrap" }}>
+              <Chip active={filter==="all"} onClick={() => setFilter("all")} color={u.color}>All ({library.length})</Chip>
+              {Object.entries(USERS).map(([key, val]) => (
+                <Chip key={key} active={filter===key} onClick={() => setFilter(key)} color={val.color}>{val.name} ({library.filter(p=>p.user===key).length})</Chip>
+              ))}
+            </div>
+            {filteredLibrary.length === 0 ? (
+              <div style={{ textAlign:"center", padding:"64px 0", color:"#79747E" }}>
+                <div style={{ fontSize:48, marginBottom:12 }}>📭</div>
+                <div style={{ fontFamily:"'DM Serif Display',serif", fontSize:20 }}>No photos yet</div>
+                <div style={{ fontSize:13, marginTop:4 }}>Upload the first memory!</div>
+              </div>
+            ) : (
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:16, animation:"fadeUp 0.3s ease" }}>
+                {filteredLibrary.map(photo => (
+                  <PhotoCard key={photo.id} photo={photo} walls={walls} onAddToWall={handleAddToWall} onRemove={handleRemoveFromLibrary} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Wall ── */}
+        {tab === "wall" && activeWall && (
+          <div style={{ padding:24 }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16, flexWrap:"wrap", gap:12 }}>
+              <div>
+                <h1 style={{ fontFamily:"'DM Serif Display',serif", fontSize:28, color:"#1C1B1F" }}>{activeWall.name}</h1>
+                <p style={{ color:"#49454F", fontSize:13, marginTop:2 }}>Drag photos around • {activeWall.items.length} photo{activeWall.items.length!==1?"s":""} pinned</p>
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                <Fab onClick={() => setWallNameModal({ mode:"rename", wall:activeWall })} color="#625B71" style={{ padding:"10px 16px" }}>✏️ Rename</Fab>
+                <Fab onClick={() => setTab("library")} color={u.color}>📚 Library</Fab>
+              </div>
+            </div>
+            <div ref={wallRef} style={{ position:"relative", width:"100%", minHeight:"calc(100vh - 280px)", background:"linear-gradient(135deg,#F3EDF7 0%,#EDE7F6 50%,#F8EDF3 100%)", borderRadius:28, overflow:"hidden", backgroundImage:`radial-gradient(circle at 20% 20%,rgba(103,80,164,0.07) 0%,transparent 50%),radial-gradient(circle at 80% 80%,rgba(181,0,109,0.05) 0%,transparent 50%),repeating-linear-gradient(0deg,transparent,transparent 39px,rgba(103,80,164,0.04) 39px,rgba(103,80,164,0.04) 40px),repeating-linear-gradient(90deg,transparent,transparent 39px,rgba(103,80,164,0.04) 39px,rgba(103,80,164,0.04) 40px)` }}>
+              {activeWall.items.length === 0 && (
+                <div style={{ position:"absolute", inset:0, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", color:"#9A8CB0", pointerEvents:"none" }}>
+                  <div style={{ fontSize:56, marginBottom:12 }}>📌</div>
+                  <div style={{ fontFamily:"'DM Serif Display',serif", fontSize:22 }}>This wall is empty</div>
+                  <div style={{ fontSize:13, marginTop:4 }}>Pin photos from the Library to start</div>
+                </div>
+              )}
+              {activeWall.items.map(item => (
+                <WallPhoto key={item.id} item={item} onRemove={handleRemoveFromWall} />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {uploadModal && <UploadModal user={activeUser} onClose={() => setUploadModal(false)} onUpload={handleUpload} />}
+      {wallNameModal?.mode === "create" && <WallNameModal title="Create a New Wall" onConfirm={handleCreateWall} onClose={() => setWallNameModal(null)} />}
+      {wallNameModal?.mode === "rename" && <WallNameModal title="Rename Wall" initial={wallNameModal.wall.name} onConfirm={handleRenameWall} onClose={() => setWallNameModal(null)} />}
+    </>
+  );
+}
