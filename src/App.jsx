@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { initializeApp } from "firebase/app";
 import { getDatabase, ref, onValue, set, update, remove } from "firebase/database";
 
@@ -60,9 +60,93 @@ function Avatar({ userKey, avatars, size=28, fontSize=13 }) {
   return <div style={{ width:size, height:size, borderRadius:"50%", background:user.color, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700, fontSize:fontSize, fontFamily:"'DM Sans',sans-serif", flexShrink:0 }}>{user.avatar}</div>;
 }
 
+// ── LIGHTBOX ────────────────────────────────────────────────────────────────
+function Lightbox({ photo, avatars, onClose }) {
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const user = USERS_BASE[photo.user];
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position:"fixed", inset:0, zIndex:9000,
+        background:"rgba(10,8,18,0.88)",
+        backdropFilter:"blur(18px)",
+        display:"flex", flexDirection:"column",
+        alignItems:"center", justifyContent:"center",
+        padding:24,
+        animation:"lbIn 0.22s cubic-bezier(0.34,1.2,0.64,1)",
+      }}
+    >
+      <style>{`@keyframes lbIn { from { opacity:0; transform:scale(0.93); } to { opacity:1; transform:none; } }`}</style>
+
+      {/* Close button */}
+      <button
+        onClick={onClose}
+        style={{
+          position:"fixed", top:20, right:20,
+          width:44, height:44, borderRadius:"50%",
+          background:"rgba(255,255,255,0.12)",
+          border:"1.5px solid rgba(255,255,255,0.2)",
+          color:"#fff", fontSize:20, cursor:"pointer",
+          display:"flex", alignItems:"center", justifyContent:"center",
+          backdropFilter:"blur(8px)",
+          transition:"background 0.2s",
+          zIndex:9001,
+        }}
+        onMouseEnter={e => e.currentTarget.style.background="rgba(255,255,255,0.22)"}
+        onMouseLeave={e => e.currentTarget.style.background="rgba(255,255,255,0.12)"}
+      >✕</button>
+
+      {/* Image */}
+      <img
+        src={photo.url}
+        alt={photo.name}
+        onClick={e => e.stopPropagation()}
+        style={{
+          maxWidth:"min(92vw, 1100px)",
+          maxHeight:"80vh",
+          objectFit:"contain",
+          borderRadius:18,
+          boxShadow:"0 32px 80px rgba(0,0,0,0.6)",
+          display:"block",
+        }}
+      />
+
+      {/* Caption */}
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          marginTop:18,
+          display:"flex", alignItems:"center", gap:10,
+          background:"rgba(255,255,255,0.08)",
+          border:"1px solid rgba(255,255,255,0.12)",
+          borderRadius:14, padding:"10px 18px",
+          backdropFilter:"blur(12px)",
+        }}
+      >
+        <Avatar userKey={photo.user} avatars={avatars} size={28} fontSize={13} />
+        <div>
+          <div style={{ color:"#fff", fontFamily:"'DM Serif Display',serif", fontSize:15 }}>{photo.name}</div>
+          <div style={{ color:"rgba(255,255,255,0.55)", fontFamily:"'DM Sans',sans-serif", fontSize:12 }}>by {user.name}</div>
+        </div>
+      </div>
+
+      <div style={{ marginTop:10, color:"rgba(255,255,255,0.3)", fontFamily:"'DM Sans',sans-serif", fontSize:12 }}>Press Esc or click outside to close</div>
+    </div>
+  );
+}
+
+// ── LOGIN SCREEN ─────────────────────────────────────────────────────────────
 function LoginScreen({ avatars, onLogin, onSetAvatar }) {
   const [hovering, setHovering] = useState(null);
-  const [uploadingFor, setUploadingFor] = useState(null);
+  // FIX: use ref instead of state to avoid async race condition
+  const uploadingForRef = useRef(null);
   const fileRef = useRef();
 
   const compressImage = (file, maxWidth=300) => new Promise((resolve) => {
@@ -87,10 +171,17 @@ function LoginScreen({ avatars, onLogin, onSetAvatar }) {
 
   const handleAvatarFile = async (e) => {
     const file = e.target.files[0];
-    if (!file || !uploadingFor) return;
+    const key = uploadingForRef.current;
+    if (!file || !key) return;
     const url = await compressImage(file);
-    onSetAvatar(uploadingFor, url);
+    onSetAvatar(key, url);
     e.target.value = "";
+    uploadingForRef.current = null;
+  };
+
+  const triggerUpload = (key) => {
+    uploadingForRef.current = key;
+    fileRef.current.click();
   };
 
   return (
@@ -116,7 +207,10 @@ function LoginScreen({ avatars, onLogin, onSetAvatar }) {
                   <div onClick={() => onLogin(key)} style={{ width:120, height:120, borderRadius:"50%", background: pic ? "transparent" : `linear-gradient(135deg, ${user.color}, ${user.color}99)`, border:`4px solid ${isHov ? user.color : "#E8DEF8"}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", transition:"all 0.22s cubic-bezier(0.34,1.56,0.64,1)", transform: isHov ? "scale(1.08)" : "scale(1)", boxShadow: isHov ? `0 12px 32px ${user.color}40` : "0 4px 16px rgba(0,0,0,0.10)", overflow:"hidden" }}>
                     {pic ? <img src={pic} alt={user.name} style={{ width:"100%", height:"100%", objectFit:"cover" }} /> : <span style={{ fontSize:44, fontWeight:800, color:"#fff", fontFamily:"'DM Serif Display',serif" }}>{user.avatar}</span>}
                   </div>
-                  <button title="Change photo" onClick={() => { setUploadingFor(key); fileRef.current.click(); }} style={{ position:"absolute", bottom:4, right:4, width:32, height:32, borderRadius:"50%", background:user.color, border:"3px solid #FEF7FF", color:"#fff", fontSize:14, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 2px 8px rgba(0,0,0,0.2)", transition:"transform 0.15s" }}
+                  <button
+                    title="Change photo"
+                    onClick={() => triggerUpload(key)}
+                    style={{ position:"absolute", bottom:4, right:4, width:32, height:32, borderRadius:"50%", background:user.color, border:"3px solid #FEF7FF", color:"#fff", fontSize:14, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 2px 8px rgba(0,0,0,0.2)", transition:"transform 0.15s" }}
                     onMouseEnter={e => e.currentTarget.style.transform="scale(1.15)"}
                     onMouseLeave={e => e.currentTarget.style.transform="scale(1)"}>📷</button>
                 </div>
@@ -137,14 +231,35 @@ function LoginScreen({ avatars, onLogin, onSetAvatar }) {
   );
 }
 
-function PhotoCard({ photo, walls, onAddToWall, onRemove, avatars }) {
+// ── PHOTO CARD ───────────────────────────────────────────────────────────────
+function PhotoCard({ photo, walls, onAddToWall, onRemove, avatars, onOpenLightbox }) {
   const [open, setOpen] = useState(false);
   const wallsContaining = walls.filter(w => w.items && Object.values(w.items).some(i => i.photo.id === photo.id));
   return (
     <div style={{ borderRadius:20, overflow:"hidden", background:"#F7F2FA", boxShadow:"0 2px 8px rgba(0,0,0,0.08)", transition:"transform 0.2s, box-shadow 0.2s", position:"relative" }}
       onMouseEnter={e => { e.currentTarget.style.transform="translateY(-4px) scale(1.01)"; e.currentTarget.style.boxShadow="0 8px 24px rgba(0,0,0,0.14)"; }}
       onMouseLeave={e => { e.currentTarget.style.transform=""; e.currentTarget.style.boxShadow="0 2px 8px rgba(0,0,0,0.08)"; }}>
-      <img src={photo.url} alt={photo.name} style={{ width:"100%", aspectRatio:"4/3", objectFit:"cover", display:"block" }} />
+      {/* Clickable image area */}
+      <div style={{ position:"relative", cursor:"zoom-in" }} onClick={() => onOpenLightbox(photo)}>
+        <img src={photo.url} alt={photo.name} style={{ width:"100%", aspectRatio:"4/3", objectFit:"cover", display:"block" }} />
+        {/* Hover overlay */}
+        <div style={{
+          position:"absolute", inset:0,
+          background:"rgba(0,0,0,0)",
+          display:"flex", alignItems:"center", justifyContent:"center",
+          transition:"background 0.2s",
+        }}
+          onMouseEnter={e => e.currentTarget.style.background="rgba(0,0,0,0.25)"}
+          onMouseLeave={e => e.currentTarget.style.background="rgba(0,0,0,0)"}
+        >
+          <span style={{ fontSize:28, opacity:0, transition:"opacity 0.2s", pointerEvents:"none" }}
+            ref={el => {
+              if (!el) return;
+              el.parentElement.onmouseenter = () => { el.style.opacity = 1; };
+              el.parentElement.onmouseleave = () => { el.style.opacity = 0; };
+            }}>🔍</span>
+        </div>
+      </div>
       <div style={{ padding:"10px 12px 12px" }}>
         <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
           <Avatar userKey={photo.user} avatars={avatars} size={22} fontSize={11} />
@@ -180,28 +295,67 @@ function PhotoCard({ photo, walls, onAddToWall, onRemove, avatars }) {
   );
 }
 
-function WallPhoto({ item, onRemove, onUpdatePos, avatars }) {
+// ── WALL PHOTO ───────────────────────────────────────────────────────────────
+function WallPhoto({ item, onRemove, onUpdatePos, avatars, onOpenLightbox }) {
   const [pos, setPos] = useState({ x: item.x, y: item.y });
   const [dragging, setDragging] = useState(false);
   const dragStart = useRef(null);
+  const didDrag = useRef(false);
   useEffect(() => { setPos({ x: item.x, y: item.y }); }, [item.x, item.y]);
 
-  const onMouseDown = (e) => { e.preventDefault(); dragStart.current = { mx: e.clientX, my: e.clientY, ox: pos.x, oy: pos.y }; setDragging(true); };
-  const onTouchStart = (e) => { const t = e.touches[0]; dragStart.current = { mx: t.clientX, my: t.clientY, ox: pos.x, oy: pos.y }; setDragging(true); };
+  const onMouseDown = (e) => {
+    e.preventDefault();
+    didDrag.current = false;
+    dragStart.current = { mx: e.clientX, my: e.clientY, ox: pos.x, oy: pos.y };
+    setDragging(true);
+  };
+  const onTouchStart = (e) => {
+    const t = e.touches[0];
+    didDrag.current = false;
+    dragStart.current = { mx: t.clientX, my: t.clientY, ox: pos.x, oy: pos.y };
+    setDragging(true);
+  };
 
   useEffect(() => {
     if (!dragging) return;
-    const onMove = (e) => { const cx = e.touches ? e.touches[0].clientX : e.clientX; const cy = e.touches ? e.touches[0].clientY : e.clientY; setPos({ x: dragStart.current.ox + cx - dragStart.current.mx, y: dragStart.current.oy + cy - dragStart.current.my }); };
-    const onUp = (e) => { setDragging(false); const cx = e.changedTouches ? e.changedTouches[0].clientX : e.clientX; const cy = e.changedTouches ? e.changedTouches[0].clientY : e.clientY; onUpdatePos(item.id, dragStart.current.ox + cx - dragStart.current.mx, dragStart.current.oy + cy - dragStart.current.my); };
-    window.addEventListener("mousemove", onMove); window.addEventListener("mouseup", onUp); window.addEventListener("touchmove", onMove, { passive: true }); window.addEventListener("touchend", onUp);
-    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); window.removeEventListener("touchmove", onMove); window.removeEventListener("touchend", onUp); };
+    const onMove = (e) => {
+      const cx = e.touches ? e.touches[0].clientX : e.clientX;
+      const cy = e.touches ? e.touches[0].clientY : e.clientY;
+      const dx = cx - dragStart.current.mx;
+      const dy = cy - dragStart.current.my;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) didDrag.current = true;
+      setPos({ x: dragStart.current.ox + dx, y: dragStart.current.oy + dy });
+    };
+    const onUp = (e) => {
+      setDragging(false);
+      const cx = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
+      const cy = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
+      onUpdatePos(item.id, dragStart.current.ox + cx - dragStart.current.mx, dragStart.current.oy + cy - dragStart.current.my);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    window.addEventListener("touchmove", onMove, { passive: true });
+    window.addEventListener("touchend", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("touchmove", onMove);
+      window.removeEventListener("touchend", onUp);
+    };
   }, [dragging, item.id, onUpdatePos]);
 
   return (
     <div onMouseDown={onMouseDown} onTouchStart={onTouchStart}
       style={{ position:"absolute", left:pos.x, top:pos.y, transform:`rotate(${item.tilt}deg)`, cursor: dragging?"grabbing":"grab", userSelect:"none", zIndex: dragging?999:item.z, filter: dragging?"drop-shadow(0 16px 32px rgba(0,0,0,0.28))":"drop-shadow(0 4px 12px rgba(0,0,0,0.18))", transition: dragging?"none":"filter 0.2s" }}>
       <div style={{ background:"#fff", borderRadius:4, padding:"10px 10px 32px", width:160, boxShadow:"inset 0 0 0 1px rgba(0,0,0,0.06)" }}>
-        <img src={item.photo.url} alt={item.photo.name} style={{ width:"100%", aspectRatio:"4/3", objectFit:"cover", display:"block", borderRadius:2 }} draggable={false} />
+        <img
+          src={item.photo.url}
+          alt={item.photo.name}
+          style={{ width:"100%", aspectRatio:"4/3", objectFit:"cover", display:"block", borderRadius:2, cursor:"zoom-in" }}
+          draggable={false}
+          onClick={() => { if (!didDrag.current) onOpenLightbox(item.photo); }}
+          onMouseDown={e => e.stopPropagation()}
+        />
         <div style={{ marginTop:6, display:"flex", alignItems:"center", gap:5 }}>
           <Avatar userKey={item.photo.user} avatars={avatars} size={16} fontSize={9} />
           <span style={{ fontSize:11, color:"#49454F", fontFamily:"'DM Sans',sans-serif", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.photo.name}</span>
@@ -212,6 +366,7 @@ function WallPhoto({ item, onRemove, onUpdatePos, avatars }) {
   );
 }
 
+// ── UPLOAD MODAL ─────────────────────────────────────────────────────────────
 function UploadModal({ user, onClose, onUploadMany }) {
   const [queue, setQueue] = useState([]);
   const [dragOver, setDragOver] = useState(false);
@@ -285,6 +440,7 @@ function UploadModal({ user, onClose, onUploadMany }) {
   );
 }
 
+// ── WALL NAME MODAL ───────────────────────────────────────────────────────────
 function WallNameModal({ initial="", title, onConfirm, onClose }) {
   const [val, setVal] = useState(initial);
   const inputRef = useRef();
@@ -303,6 +459,7 @@ function WallNameModal({ initial="", title, onConfirm, onClose }) {
   );
 }
 
+// ── WALLS LIST ────────────────────────────────────────────────────────────────
 function WallsList({ walls, activeWallId, onSelect, onCreate, onRename, onDelete }) {
   return (
     <div style={{ display:"flex", gap:8, padding:"12px 24px", overflowX:"auto", borderBottom:"1px solid #E8DEF8", background:"rgba(254,247,255,0.95)", alignItems:"center" }}>
@@ -325,8 +482,10 @@ function WallsList({ walls, activeWallId, onSelect, onCreate, onRename, onDelete
   );
 }
 
+// ── PROFILE POPOVER ───────────────────────────────────────────────────────────
 function ProfilePopover({ userKey, avatars, onSetAvatar, onLogout, onClose }) {
   const user = USERS_BASE[userKey];
+  // FIX: use ref to avoid race condition
   const fileRef = useRef();
 
   const compressImage = (file, maxWidth=300) => new Promise((resolve) => {
@@ -363,6 +522,7 @@ function ProfilePopover({ userKey, avatars, onSetAvatar, onLogout, onClose }) {
   );
 }
 
+// ── APP ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const [activeUser, setActiveUser] = useState(() => { try { return localStorage.getItem(SK_SESSION) || null; } catch { return null; } });
   const [avatars, setAvatars] = useState(() => { try { return JSON.parse(localStorage.getItem(SK_AVATARS)) || {}; } catch { return {}; } });
@@ -375,6 +535,7 @@ export default function App() {
   const [wallNameModal, setWallNameModal] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [lightboxPhoto, setLightboxPhoto] = useState(null);
 
   useEffect(() => {
     const unsubLib = onValue(ref(db, "library"), (snap) => {
@@ -418,7 +579,7 @@ export default function App() {
   };
 
   const handleRemoveFromWall = (itemId) => remove(ref(db, `walls/${activeWallId}/items/${itemId}`));
-  const handleUpdatePos = (itemId, x, y) => update(ref(db, `walls/${activeWallId}/items/${itemId}`), { x, y });
+  const handleUpdatePos = useCallback((itemId, x, y) => update(ref(db, `walls/${activeWallId}/items/${itemId}`), { x, y }), [activeWallId]);
 
   const handleCreateWall = (name) => {
     const id = genId();
@@ -435,6 +596,9 @@ export default function App() {
     const remaining = walls.filter(w => w.id !== id);
     if (activeWallId === id) setActiveWallId(remaining.length > 0 ? remaining[0].id : null);
   };
+
+  const openLightbox = useCallback((photo) => setLightboxPhoto(photo), []);
+  const closeLightbox = useCallback(() => setLightboxPhoto(null), []);
 
   if (!activeUser) return <LoginScreen avatars={avatars} onLogin={handleLogin} onSetAvatar={handleSetAvatar} />;
 
@@ -514,7 +678,7 @@ export default function App() {
             ) : (
               <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:16, animation:"fadeUp 0.3s ease" }}>
                 {filteredLibrary.map(photo => (
-                  <PhotoCard key={photo.id} photo={photo} walls={walls} onAddToWall={handleAddToWall} onRemove={handleRemoveFromLibrary} avatars={avatars} />
+                  <PhotoCard key={photo.id} photo={photo} walls={walls} onAddToWall={handleAddToWall} onRemove={handleRemoveFromLibrary} avatars={avatars} onOpenLightbox={openLightbox} />
                 ))}
               </div>
             )}
@@ -526,7 +690,7 @@ export default function App() {
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16, flexWrap:"wrap", gap:12 }}>
               <div>
                 <h1 style={{ fontFamily:"'DM Serif Display',serif", fontSize:28, color:"#1C1B1F" }}>{activeWall.name}</h1>
-                <p style={{ color:"#49454F", fontSize:13, marginTop:2 }}>Drag photos around • {activeWall.items ? Object.keys(activeWall.items).length : 0} photos pinned</p>
+                <p style={{ color:"#49454F", fontSize:13, marginTop:2 }}>Drag photos around • click image to enlarge • {activeWall.items ? Object.keys(activeWall.items).length : 0} photos pinned</p>
               </div>
               <div style={{ display:"flex", gap:8 }}>
                 <Fab onClick={() => setWallNameModal({ mode:"rename", wall:activeWall })} color="#625B71" style={{ padding:"10px 16px" }}>✏️ Rename</Fab>
@@ -542,7 +706,7 @@ export default function App() {
                 </div>
               )}
               {activeWall.items && Object.values(activeWall.items).map(item => (
-                <WallPhoto key={item.id} item={item} onRemove={handleRemoveFromWall} onUpdatePos={handleUpdatePos} avatars={avatars} />
+                <WallPhoto key={item.id} item={item} onRemove={handleRemoveFromWall} onUpdatePos={handleUpdatePos} avatars={avatars} onOpenLightbox={openLightbox} />
               ))}
             </div>
           </div>
@@ -552,6 +716,7 @@ export default function App() {
       {uploadModal && <UploadModal user={activeUser} onClose={() => setUploadModal(false)} onUploadMany={handleUploadMany} />}
       {wallNameModal?.mode === "create" && <WallNameModal title="Create a New Wall" onConfirm={handleCreateWall} onClose={() => setWallNameModal(null)} />}
       {wallNameModal?.mode === "rename" && <WallNameModal title="Rename Wall" initial={wallNameModal.wall.name} onConfirm={handleRenameWall} onClose={() => setWallNameModal(null)} />}
+      {lightboxPhoto && <Lightbox photo={lightboxPhoto} avatars={avatars} onClose={closeLightbox} />}
     </>
   );
 }
